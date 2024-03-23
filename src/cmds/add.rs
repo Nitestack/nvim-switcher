@@ -1,18 +1,15 @@
-use cliclack::{input, spinner};
+use cliclack;
 use std::process::Command;
 
-use crate::store::{get_config, set_config, Config, NeovimConfig};
-use crate::utils::{get_nvim_config_dir, is_valid_github_url, print_intro, print_outro};
+use crate::{store, utils};
 
 pub fn add_config() {
-    let configs_dir = get_nvim_config_dir(None);
+    let configs_dir = utils::get_nvim_config_dir(None);
 
-    print_intro(None);
-
-    let name: String = input("Name")
+    let name: String = match cliclack::input("Name")
         .placeholder("Configuration Name")
         .validate(|input: &String| {
-            if get_config()
+            if store::get_config()
                 .configs
                 .iter()
                 .any(|nvim_config| nvim_config.name.to_lowercase() == *input.to_lowercase())
@@ -23,54 +20,71 @@ pub fn add_config() {
             }
         })
         .interact()
-        .unwrap();
-    let repo_url: String = input("GitHub Repository URL")
+    {
+        Ok(name) => name,
+        Err(_) => utils::print_outro_cancel(Some("Failed to get configuration name")),
+    };
+    let repo_url: String = match cliclack::input("GitHub Repository URL")
         .placeholder("https://github.com/user/repo")
         .validate(|input: &String| {
-            if !is_valid_github_url(input) {
+            if !utils::is_valid_github_url(input) {
                 Err("URL must be a valid GitHub repository URL")
             } else {
                 Ok(())
             }
         })
         .interact()
-        .unwrap();
-    let nvim_dir_name: String = input(format!(
+    {
+        Ok(repo_url) => repo_url,
+        Err(_) => utils::print_outro_cancel(Some("Failed to get GitHub Repository URL")),
+    };
+    let nvim_dir_name: String = match cliclack::input(format!(
         "{} ({})",
         "Neovim Directory Name",
-        configs_dir.join("<configuration-name>").to_str().unwrap()
+        match configs_dir.join("<configuration-name>").to_str() {
+            Some(s) => s,
+            None => utils::print_outro_cancel(None),
+        }
     ))
     .placeholder("configuration-name")
     .validate(|input: &String| {
-        if get_config()
+        if store::get_config()
             .configs
             .iter()
             .any(|nvim_config| nvim_config.nvim_dir_name == *input)
         {
             Err("Directory name already exists")
+        } else if !utils::is_valid_dir_name(input) {
+            Err("Directory name is not valid")
         } else {
             Ok(())
         }
     })
     .interact()
-    .unwrap();
+    {
+        Ok(nvim_dir_name) => nvim_dir_name,
+        Err(_) => utils::print_outro_cancel(Some("Failed to get Neovim Directory Name")),
+    };
 
-    let mut spinner = spinner();
+    let mut spinner = cliclack::spinner();
     spinner.start(format!("Cloning {} from '{}'...", name, repo_url).as_str());
-    Command::new("git")
+    if Command::new("git")
         .arg("clone")
         .arg(&repo_url)
         .arg(configs_dir.join(&nvim_dir_name))
         .arg("--depth")
         .arg("1")
         .output()
-        .expect("Failed to clone repository");
+        .is_err()
+    {
+        utils::print_outro_cancel(Some("Failed to clone repository"))
+    }
     spinner.stop(format!("Cloned {} from '{}'", name, repo_url).as_str());
 
     spinner.start("Editing user config...");
-    set_config(
-        Config {
-            configs: vec![NeovimConfig {
+    store::set_config(
+        store::Config {
+            configs: vec![store::NeovimConfig {
                 name: name.clone(),
                 repo_url: repo_url.clone(),
                 nvim_dir_name: nvim_dir_name.clone(),
@@ -80,12 +94,15 @@ pub fn add_config() {
     );
     spinner.stop("User config saved");
 
-    print_outro(Some(
+    utils::print_outro(Some(
         format!(
             "Added {} ({}) to '{}'",
             name,
             repo_url,
-            configs_dir.join(nvim_dir_name).to_str().unwrap()
+            match configs_dir.join(nvim_dir_name).to_str() {
+                Some(s) => s,
+                None => utils::print_outro_cancel(None),
+            }
         )
         .as_str(),
     ));

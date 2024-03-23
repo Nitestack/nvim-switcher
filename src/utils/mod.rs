@@ -1,10 +1,9 @@
 mod logger;
 
-use cliclack::{intro, outro, outro_cancel};
 use regex::Regex;
 use std::{
     env,
-    path::PathBuf,
+    path::{Component, Path, PathBuf},
     process::{self, Command},
 };
 
@@ -19,31 +18,35 @@ pub fn is_fzf_installed() -> bool {
 }
 
 pub fn print_intro(msg: Option<&str>) {
-    intro(
+    cliclack::intro(
         msg.unwrap_or("Neovim Configuration Switcher")
             .to_uppercase(),
     )
     .unwrap();
 }
 
-pub fn print_outro(msg: Option<&str>) {
-    outro(logger::get_success_string(
+pub fn print_outro(msg: Option<&str>) -> ! {
+    cliclack::outro(logger::get_success_string(
         msg.unwrap_or("Thanks for using Neovim Configuration Switcher!"),
         false,
     ))
     .unwrap();
+    process::exit(0);
 }
 
-pub fn print_outro_cancel(msg: &str) {
-    outro_cancel(logger::get_error_string(msg, true)).unwrap();
+pub fn print_outro_cancel(msg: Option<&str>) -> ! {
+    cliclack::outro_cancel(logger::get_error_string(
+        msg.unwrap_or("An unexpected error occurred. Please try again!"),
+        true,
+    ))
+    .unwrap();
     process::exit(0);
 }
 
 /// Workaround to enable [console::Emoji]. Disable it with [disable_emojis]
 pub fn enable_emojis() {
-    match env::var("WT_SESSION") {
-        Ok(_) => {}
-        Err(_) => env::set_var("WT_SESSION", "nvims-wt-session-hack"),
+    if env::var("WT_SESSION").is_err() {
+        env::set_var("WT_SESSION", "nvims-wt-session-hack")
     }
 }
 
@@ -55,27 +58,56 @@ pub fn disable_emojis() {
 }
 
 pub fn is_valid_github_url(url: &str) -> bool {
-    let re = Regex::new(r"^(https?://github\.com/|git@github\.com:)[^/\s]+/[^/\s]+(\.git)?$")
-        .expect("Failed to validate GitHub URL");
+    let re = match Regex::new(r"^(https?://github\.com/|git@github\.com:)[^/\s]+/[^/\s]+(\.git)?$")
+    {
+        Ok(re) => re,
+        Err(_) => print_outro_cancel(None),
+    };
     re.is_match(url)
 }
 
+pub fn is_valid_dir_name(name: &str) -> bool {
+    let path = Path::new(name);
+    // Check if the path has a single component and that component is not ".."
+    path.components().count() == 1
+        && path
+            .components()
+            .all(|component| matches!(component, Component::Normal(_)))
+}
+
 pub fn get_nvim_config_dir(path: Option<&str>) -> PathBuf {
-    let config_dir = dirs::config_local_dir().expect("Could not get config dir");
-    if let Some(path) = path {
-        config_dir.join(path)
-    } else {
-        config_dir
+    match dirs::config_local_dir() {
+        Some(dir) => {
+            if let Some(path) = path {
+                dir.join(path)
+            } else {
+                dir
+            }
+        }
+        None => print_outro_cancel(None),
     }
 }
 
-pub fn print_empty_configurations() -> bool {
+pub fn ensure_non_empty_config() {
     let config = get_config();
     if config.configs.is_empty() {
-        print_intro(None);
-        print_outro_cancel("No configurations found! Add a configuration and try again.");
-        true
-    } else {
-        false
+        print_outro_cancel(Some(
+            "No configurations found! Add a configuration and try again.",
+        ));
+    }
+}
+
+pub fn setup_ctrl_c_handler() {
+    let ctrlc = ctrlc::set_handler(move || {
+        println!("{}", logger::get_info_string("Exiting...", true));
+        process::exit(0);
+    });
+
+    if ctrlc.is_err() {
+        println!(
+            "{}",
+            logger::get_error_string("An unexpected error occurred. Please try again!", true)
+        );
+        process::exit(0);
     }
 }

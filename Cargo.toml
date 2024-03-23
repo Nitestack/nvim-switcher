@@ -6,7 +6,10 @@ description = "A CLI to easily switch between multiple Neovim configuration envi
 readme = "README.md"
 keywords = ["neovim", "nvim", "switcher", "cli"]
 categories = ["command-line-utilities"]
+homepage = "https://github.com/Nitestack/nvim-switcher"
 repository = "https://github.com/Nitestack/nvim-switcher"
+license = "Apache-2.0"
+authors = ["Nitestack"]
 
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
@@ -15,6 +18,7 @@ clap = { version = "4.5.3", features = ["derive"] }
 cliclack = "0.1.13"
 colored = "2.1.0"
 console = "0.15.8"
+ctrlc = "3.4.4"
 dirs = "5.0.1"
 merge = "0.1.0"
 prettytable-rs = "0.10.0"

@@ -5,6 +5,8 @@ use std::fs::File;
 use std::io::Write;
 use std::path::PathBuf;
 
+use crate::utils;
+
 #[derive(Serialize, Deserialize, Debug, Clone, Merge)]
 pub struct Config {
     #[merge(strategy = merge::vec::append)]
@@ -25,14 +27,14 @@ fn get_default_config() -> Config {
 fn get_config_dir() -> PathBuf {
     match dirs::config_dir() {
         Some(dir) => dir.join("nvims"),
-        None => panic!("Could not get config dir"),
+        None => utils::print_outro_cancel(None),
     }
 }
 
 fn get_config_path() -> String {
     match get_config_dir().join("config.json").to_str() {
         Some(path) => path.to_string(),
-        None => panic!("Could not get config dir"),
+        None => utils::print_outro_cancel(None),
     }
 }
 
@@ -42,26 +44,34 @@ pub fn get_config() -> Config {
 
     let config_dir = get_config_dir();
 
-    if !config_dir.exists() {
-        fs::create_dir_all(&config_dir).expect("Could not create config dir");
+    if !config_dir.exists() && fs::create_dir_all(&config_dir).is_err() {
+        utils::print_outro_cancel(Some("Failed to create config directory"))
     }
 
     match fs::metadata(&config_path) {
         Ok(_) => {
-            let config = fs::read_to_string(&config_path).expect("Could not read config file");
-            serde_json::from_str(&config).unwrap_or(default_config)
+            let config = match fs::read_to_string(&config_path) {
+                Ok(config) => config,
+                Err(_) => utils::print_outro_cancel(Some("Failed to read config file")),
+            };
+            match serde_json::from_str(&config) {
+                Ok(config) => config,
+                Err(_) => utils::print_outro_cancel(Some("Failed to parse config file")),
+            }
         }
-        Err(_) => {
-            File::create(&config_path)
-                .expect("Could not create config file")
-                .write_all(
-                    serde_json::to_string(&default_config)
-                        .expect("Could not default serialize config")
-                        .as_bytes(),
-                )
-                .expect("Could not write config file");
-            default_config
-        }
+        Err(_) => match File::create(&config_path) {
+            Ok(mut file) => match file.write_all(
+                match serde_json::to_string(&default_config) {
+                    Ok(config) => config,
+                    Err(_) => utils::print_outro_cancel(Some("Failed to serialize config")),
+                }
+                .as_bytes(),
+            ) {
+                Ok(_) => default_config,
+                Err(_) => utils::print_outro_cancel(Some("Failed to write config file")),
+            },
+            Err(_) => utils::print_outro_cancel(Some("Failed to create config file")),
+        },
     }
 }
 
@@ -75,12 +85,21 @@ pub fn set_config(config: Config, override_config: bool) {
         current_config.merge(config);
     }
 
-    File::create(config_path)
-        .expect("Could not create config file")
-        .write_all(
-            serde_json::to_string(&current_config)
-                .expect("Could not serialize config")
-                .as_bytes(),
-        )
-        .expect("Could not write config file");
+    match File::create(config_path) {
+        Ok(mut file) => {
+            if file
+                .write_all(
+                    match serde_json::to_string(&current_config) {
+                        Ok(config) => config,
+                        Err(_) => utils::print_outro_cancel(Some("Failed to serialize config")),
+                    }
+                    .as_bytes(),
+                )
+                .is_err()
+            {
+                utils::print_outro_cancel(Some("Failed to write config file"))
+            }
+        }
+        Err(_) => utils::print_outro_cancel(Some("Failed to create config file")),
+    }
 }

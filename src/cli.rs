@@ -1,7 +1,4 @@
-use crate::{
-    cmds::*,
-    utils::{is_neovim_installed, print_outro_cancel},
-};
+use crate::{cmds, utils};
 use clap::{Parser, Subcommand};
 
 #[derive(Parser, Debug)]
@@ -24,18 +21,20 @@ enum Commands {
 }
 
 pub fn run_cli() {
+    utils::print_intro(None);
     let cli = Cli::parse();
 
-    if !is_neovim_installed() {
-        print_outro_cancel("Neovim not installed! Please install Neovim and try again.");
-        return;
+    if !utils::is_neovim_installed() {
+        utils::print_outro_cancel(Some(
+            "Neovim not installed! Please install Neovim and try again.",
+        ));
     }
 
     match &cli.command {
-        Some(Commands::Add {}) => add::add_config(),
-        Some(Commands::Remove {}) => remove::remove_config(),
+        Some(Commands::Add {}) => cmds::add::add_config(),
+        Some(Commands::Remove {}) => cmds::remove::remove_config(),
         Some(Commands::Config {}) => {}
-        Some(Commands::List {}) => list::list_configs(),
-        None => select::select_config(),
+        Some(Commands::List {}) => cmds::list::list_configs(),
+        None => cmds::select::select_config(),
     }
 }

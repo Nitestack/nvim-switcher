@@ -1,21 +1,15 @@
-use cliclack::{select, spinner};
+use cliclack;
 
-use crate::{
-    store::{get_config, set_config},
-    utils::{get_nvim_config_dir, print_empty_configurations, print_intro, print_outro},
-};
+use crate::{store, utils};
 
 use std::{env, fs, ops::Add};
 
 pub fn remove_config() {
-    if print_empty_configurations() {
-        return;
-    }
-    print_intro(None);
+    utils::ensure_non_empty_config();
 
-    let config = get_config();
+    let config = store::get_config();
 
-    let selected_key = select("Select Neovim Distribution")
+    let selected_key = match cliclack::select("Select Neovim Configuration")
         .items(
             &config
                 .configs
@@ -24,15 +18,21 @@ pub fn remove_config() {
                 .collect::<Vec<_>>(),
         )
         .interact()
-        .unwrap();
+    {
+        Ok(selected_key) => selected_key,
+        Err(_) => utils::print_outro_cancel(Some("Failed to get selected configuration")),
+    };
 
-    let selected_item = &config
+    let selected_item = match config
         .configs
         .iter()
         .find(|s| s.nvim_dir_name == selected_key)
-        .expect("Failed to find selected item");
+    {
+        Some(selected_item) => selected_item,
+        None => utils::print_outro_cancel(None),
+    };
 
-    let mut spinner = spinner();
+    let mut spinner = cliclack::spinner();
     spinner.start(
         format!(
             "Removing config, data, cache and state for {}...",
@@ -46,27 +46,32 @@ pub fn remove_config() {
         selected_item.nvim_dir_name.clone()
     };
 
-    fs::remove_dir_all(get_nvim_config_dir(Some(&selected_item.nvim_dir_name))).ok();
-    fs::remove_dir_all(
-        dirs::data_local_dir()
-            .expect("Failed to get data directory")
-            .join(&dir_name),
-    )
+    fs::remove_dir_all(utils::get_nvim_config_dir(Some(
+        &selected_item.nvim_dir_name,
+    )))
+    .ok();
+    fs::remove_dir_all(match dirs::data_local_dir() {
+        Some(data_local_dir) => data_local_dir.join(&dir_name),
+        None => utils::print_outro_cancel(None),
+    })
     .ok();
     fs::remove_dir_all({
-        let cache_dir = dirs::cache_dir().expect("Failed to get cache directory");
         if env::consts::OS == "windows" {
-            dirs::data_local_dir()
-                .expect("Failed to get temp directory")
-                .join("Temp")
-                .join(&dir_name)
+            match dirs::data_local_dir() {
+                Some(data_local_dir) => data_local_dir.join("Temp").join(dir_name),
+                None => utils::print_outro_cancel(None),
+            }
         } else {
-            cache_dir.join(&dir_name)
+            let cache_dir = match dirs::cache_dir() {
+                Some(cache_dir) => cache_dir,
+                None => utils::print_outro_cancel(None),
+            };
+            cache_dir.join(dir_name)
         }
     })
     .ok();
 
-    //TODO: As long as `state_dir` returns nothing on Windows, this should work.
+    // INFO: As long as `state_dir` returns nothing on Windows, this should work.
     if let Some(state_dir) = dirs::state_dir() {
         fs::remove_dir_all(state_dir.join(&selected_item.nvim_dir_name)).ok();
     }
@@ -75,19 +80,22 @@ pub fn remove_config() {
     spinner.start("Editing user config...");
     let mut new_config = config.clone();
     new_config.configs.swap_remove(
-        config
+        match config
             .configs
             .iter()
             .position(|s| s.nvim_dir_name == selected_item.nvim_dir_name)
-            .expect("Failed to find selected item"),
+        {
+            Some(position) => position,
+            None => utils::print_outro_cancel(None),
+        },
     );
-    set_config(new_config, true);
+    store::set_config(new_config, true);
     spinner.stop("User config saved");
 
-    print_outro(Some(
+    utils::print_outro(Some(
         format!(
             "Removed {} ({})",
-            &selected_item.name, &selected_item.repo_url,
+            selected_item.name, selected_item.repo_url,
         )
         .as_str(),
     ));

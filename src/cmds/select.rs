@@ -1,11 +1,4 @@
-// use cliclack::select;
-
-use crate::{
-    store::get_config,
-    utils::{
-        is_fzf_installed, print_empty_configurations, print_intro, print_outro, print_outro_cancel,
-    },
-};
+use crate::{store, utils};
 
 use std::{
     io::{Read, Write},
@@ -13,17 +6,13 @@ use std::{
 };
 
 pub fn select_config() {
-    if !is_fzf_installed() {
-        print_intro(None);
-        print_outro_cancel("fzf not installed! Please install fzf and try again.");
-        return;
+    if !utils::is_fzf_installed() {
+        utils::print_outro_cancel(Some("fzf not installed! Please install fzf and try again."));
     }
 
-    if print_empty_configurations() {
-        return;
-    }
+    utils::ensure_non_empty_config();
 
-    let config = get_config();
+    let config = store::get_config();
 
     let items = config
         .configs
@@ -32,8 +21,8 @@ pub fn select_config() {
         .collect::<Vec<_>>()
         .join("\n");
 
-    let mut child = Command::new("fzf")
-        .arg("--prompt= Select Neovim Distribution  ")
+    let mut child = match Command::new("fzf")
+        .arg("--prompt= Select Neovim Configuration  ")
         .arg("--height=~50%")
         .arg("--layout=reverse")
         .arg("--border")
@@ -41,32 +30,41 @@ pub fn select_config() {
         .stdin(Stdio::piped())
         .stdout(Stdio::piped())
         .spawn()
-        .expect("Failed to spawn fzf process");
+    {
+        Ok(child) => child,
+        Err(_) => utils::print_outro_cancel(Some("Failed to start fzf")),
+    };
 
     if let Some(mut stdin) = child.stdin.take() {
-        stdin.write_all(items.as_bytes()).unwrap();
+        match stdin.write_all(items.as_bytes()) {
+            Ok(_) => {}
+            Err(_) => utils::print_outro_cancel(None),
+        };
     }
 
     let mut output = String::new();
     if let Some(mut stdout) = child.stdout.take() {
-        stdout.read_to_string(&mut output).unwrap();
+        match stdout.read_to_string(&mut output) {
+            Ok(_) => {}
+            Err(_) => utils::print_outro_cancel(None),
+        };
     }
 
-    Command::new("nvim")
+    match Command::new("nvim")
         .env(
             "NVIM_APPNAME",
-            config
-                .configs
-                .iter()
-                .find(|s| s.name == output.trim())
-                .expect("Failed to find selected item")
-                .nvim_dir_name
-                .clone(),
+            match config.configs.iter().find(|s| s.name == output.trim()) {
+                Some(selected_item) => selected_item.nvim_dir_name.clone(),
+                None => utils::print_outro_cancel(None),
+            },
         )
         .spawn()
-        .unwrap()
-        .wait()
-        .ok();
+    {
+        Ok(mut command) => {
+            command.wait().ok();
+        }
+        Err(_) => utils::print_outro_cancel(Some("Failed to start Neovim")),
+    };
 
-    print_outro(None);
+    utils::print_outro(None);
 }
